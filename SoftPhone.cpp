@@ -1,6 +1,7 @@
 
 #define WIN32_LEAN_AND_MEAN
 #include <Windows.h>
+#define lengthOf(a) (sizeof(a)/sizeof(*a))
 
 #ifdef _DEBUG
 #pragma comment(lib, "libpjproject-i386-Win32-vc8-Debug-Dynamic.lib")
@@ -10,6 +11,24 @@
 #pragma comment(lib, "Ws2_32.lib")
 
 #include "SoftPhone.DLL.h"
+#include "../bob/debug.h"
+
+int null_printf(const char* fmt, ...) { return -1; }
+print_ft dprintf = null_printf, eprintf = null_printf;
+extern "C" void softphone_config_log( print_ft dprint, print_ft eprint ) {
+	dprintf = dprint; eprintf = eprint;
+}
+
+
+#define _export(type,name) extern "C" type softphone_##name
+// External printing implementation
+//typedef int (__cdecl *print_f)(const char*, ...);
+//static int print_null(const char* fmt, ...) { return -1; }
+//print_f print = print_null, warn = print_null, error = print_null;
+//
+//_export(void,config_log) ( print_f _print, print_f _warn, print_f _error ) {
+//	print = _print; warn = _warn; 
+//}
 
 #include <pj/types.h>
 #include <pjsua.h>
@@ -48,7 +67,7 @@ static void on_call_media_state(pjsua_call_id call_id);
 static void on_dtmf_digit( pjsua_call_id call_id, int digit );
 static int error_exit(const char *title, pj_status_t status)
 {
-//	dprintf( "Error: %s [%u]\n",  title, status );
+	dprintf( "Error: %s [%u]\n",  title, status );
 	return softphone_destroy();
 }
 // Audio Handlers
@@ -92,6 +111,23 @@ extern "C" int softphone_init( struct softphone_config *_csip ) {
 
 		status = pjsua_init(&cfg, &log_cfg, &media_cfg);
 		if( status != PJ_SUCCESS ) return error_exit("Error in pjsua_init()", status);
+
+		// Cancel echo cancellation
+		status = pjsua_set_ec(0, 0);
+	//	if( status != PJ_SUCCESS ) return error_exit("Error in pjsua_set_ec()", status);
+		
+		{	// Filter acceptable codecs
+			pjsua_codec_info info[32]; // sizeof returns zero
+			unsigned count = 32;
+			if( pjsua_enum_codecs(info, &count) == PJ_SUCCESS ) {
+				auto i = info - 1;
+				while( ++i < info + count ) {
+					if( strstr( i->codec_id.ptr, "PCMU" ) ) {
+						println("Codec: %s - %d", i->codec_id.ptr, i->priority);
+					} else pjsua_codec_set_priority( &i->codec_id, 0 );
+				}
+			}
+		}
 	}
 
 	{	// Create UDP transport.
@@ -173,6 +209,12 @@ extern "C" int softphone_destroy() {
 	return PJ_SUCCESS;
 }
 
+pj_str_t vpn_ip;
+char vpn_ip_str[18] = ""; // "172.16.0.130";
+extern "C" void softphone_force_vpn_ip( const char* ip ) {
+	if(ip) strcpy_s(vpn_ip_str, ip);
+}
+
 //========================================================
 // SIP Handlers
 //========================================================
@@ -227,7 +269,7 @@ static void on_call_state(pjsua_call_id call_id, pjsip_event *e)
 		port->cfg->available = true;
 	}
 
-//	dprintf( "Call %d state=%.*s\n", call_id, (int)ci.state_text.slen, ci.state_text.ptr );
+	dprintf( "Call %d state=%.*s\n", call_id, (int)ci.state_text.slen, ci.state_text.ptr );
 }
 
 
@@ -255,14 +297,12 @@ static pj_status_t pjmedia_direct_port_create( struct direct_port *port ) {
 
 static void on_call_sdp_created(pjsua_call_id call_id, pjmedia_sdp_session *sdp, pj_pool_t *pool, const pjmedia_sdp_session *rem_sdp)
 {
-#ifdef _VPN_WORKAROUND_
+	if( strlen(vpn_ip_str) == 0 ) return;
 	// Manual entry of IP for VPNs
-	pj_str_t vpn_ip = pj_str("172.16.0.159");
-	sdp->origin.addr = vpn_ip;
+	sdp->origin.addr = vpn_ip = pj_str(vpn_ip_str);
 	for( u32 i = 0; i < sdp->media_count; i++) {
 		sdp->media[i]->conn->addr = vpn_ip;
 	}
-#endif
 }
 
 // Callback called by the library when call's media state has changed
@@ -312,7 +352,7 @@ static void on_call_media_state(pjsua_call_id call_id)
 static void on_dtmf_digit( pjsua_call_id call_id, int digit ) {
 	PJ_UNUSED_ARG(call_id);
 
-//	dprintf(" DTMF_Recieved:  %d  %c", digit, digit );
+	println(" DTMF_Recieved:  %d  %c", digit, digit );
 }
 
 //========================================================

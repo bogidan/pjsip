@@ -2,6 +2,7 @@
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 
+#include "../bob/debug.h"
 #include "../bob/types.h"
 #include "../bob/FastDelegate/FastDelegate.h"
 typedef fastdelegate::FastDelegate2<u08*,u32,u32> DelBlockPush;
@@ -15,6 +16,7 @@ struct softphone_config {
 
 #ifdef _WINDLL
 #define DLL_CALL __declspec(dllexport)
+extern "C" void DLL_CALL softphone_config_log( print_ft, print_ft );
 extern "C" int DLL_CALL softphone_init( struct softphone_config *csip );
 extern "C" int DLL_CALL softphone_listen();
 extern "C" int DLL_CALL softphone_connect_account( const char *account );
@@ -26,6 +28,7 @@ extern "C" int DLL_CALL softphone_destroy();
 #define LOAD_FUNCTION(var,name) var = (decltype(var)) GetProcAddress(hDLL, name);
 class SoftPhone {
 	HMODULE hDLL;
+	void (*config)(print_ft, print_ft);
 	int (*init)(struct softphone_config*);
 	int (*listen)();
 	int (*connect)(const char *account);
@@ -39,11 +42,13 @@ private:
 			default: warnln("Failed to load SoftPhone.dll"); return;
 		}
 		// Load Functions
+		LOAD_FUNCTION( config,  "softphone_config_log" );
 		LOAD_FUNCTION( init,    "softphone_init" );
 		LOAD_FUNCTION( listen,  "softphone_listen" );
 		LOAD_FUNCTION( connect, "softphone_connect_account" );
 		LOAD_FUNCTION( destroy, "softphone_destroy" );
 		// Verify Loaded
+		if( config ) config(dprintf, eprintf);
 		if( init && listen && connect && destroy );
 		else warnln("Failed to load functions from SoftPhone.dll");
 	}
