@@ -108,12 +108,20 @@ extern "C" int softphone_init( struct softphone_config *_csip ) {
 
 		pjsua_media_config_default(&media_cfg);
 	//	media_cfg.snd_auto_close_time = -1; // disable auto close
+		media_cfg.no_vad = 1; // Disable Voice Activity Detector (VAD)
+	//	media_cfg.jb_init = -1;
+	//	media_cfg.jb_max = -1;
+	//	media_cfg.jb_max_pre = -1;
+	//	media_cfg.jb_min_pre = -1;
+		media_cfg.clock_rate = 8000;
+		media_cfg.audio_frame_ptime = 20;
+		media_cfg.ptime = 20;
 
 		status = pjsua_init(&cfg, &log_cfg, &media_cfg);
 		if( status != PJ_SUCCESS ) return error_exit("Error in pjsua_init()", status);
 
-		// Cancel echo cancellation
-		status = pjsua_set_ec(0, 0);
+		// Cancel echo cancellation (Disabled in Library Header)
+	//	status = pjsua_set_ec(0, 0);
 	//	if( status != PJ_SUCCESS ) return error_exit("Error in pjsua_set_ec()", status);
 		
 		{	// Filter acceptable codecs
@@ -210,7 +218,7 @@ extern "C" int softphone_destroy() {
 }
 
 pj_str_t vpn_ip;
-char vpn_ip_str[18] = ""; // "172.16.0.130";
+char vpn_ip_str[18] = "";//"172.16.0.220";
 extern "C" void softphone_force_vpn_ip( const char* ip ) {
 	if(ip) strcpy_s(vpn_ip_str, ip);
 }
@@ -276,9 +284,9 @@ static void on_call_state(pjsua_call_id call_id, pjsip_event *e)
 static pj_status_t pjmedia_direct_port_create( struct direct_port *port ) {
 	pj_status_t status;
 	unsigned channel_count = 1;
-	unsigned clock_rate = 16000; // 22000 // 22050
+	unsigned clock_rate = 8000; // 22000 // 22050
 	unsigned bits_per_sample = 16;
-	unsigned samples_per_frame = 80; // 110; // 220
+	unsigned samples_per_frame = 64; // 80 // 110; // 220
 
 	const pj_str_t name = pj_str("direct");
 

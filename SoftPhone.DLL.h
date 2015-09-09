@@ -43,6 +43,7 @@ private:
 		}
 		// Load Functions
 		LOAD_FUNCTION( config,  "softphone_config_log" );
+	//	LOAD_FUNCTION( config2, "softphone_force_vpn_ip" );
 		LOAD_FUNCTION( init,    "softphone_init" );
 		LOAD_FUNCTION( listen,  "softphone_listen" );
 		LOAD_FUNCTION( connect, "softphone_connect_account" );
