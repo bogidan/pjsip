@@ -33,6 +33,15 @@ extern "C" void softphone_config_log( print_ft dprint, print_ft eprint ) {
 #include <pj/types.h>
 #include <pjsua.h>
 
+static const u16 sin_440Hz[] = {
+4096,3853,3156,2085,767,-640,-1973,-3072,-3808,-4093,-3895,-3236,-2194,-893,513,1859,2985,3759,4087,3933,3313,2302,1018,-385,-1743,-2896,-3706,-4077,-3967,-3387
+,-2407,-1142,257,1626,2803,3649,4063,3997,3458,2510,1265,-128,-1507,-2708,-3589,-4045,-4023,-3525,-2610,-1387,0,1387,2610,3525,4023,4045,3589,2708,1507,128
+,-1265,-2510,-3458,-3997,-4063,-3649,-2803,-1626,-257,1142,2407,3387,3967,4077,3706,2896,1743,385,-1018,-2302,-3313,-3933,-4087,-3759,-2985,-1859,-513,893,2194,3236
+,3895,4093,3808,3072,1973,640,-767,-2085,-3156,-3853,-4096,-3853,-3156,-2085,-767,640,1973,3072,3808,4093,3895,3236,2194,893,-513,-1859,-2985,-3759,-4087,-3933
+,-3313,-2302,-1018,385,1743,2896,3706,4077,3967,3387,2407,1142,-257,-1626,-2803,-3649,-4063,-3997,-3458,-2510,-1265,128,1507,2708,3589,4045,4023,3525,2610,1387
+,0,-1387,-2610,-3525,-4023,-4045,-3589,-2708,-1507,-128,1265,2510,3458,3997,4063,3649,2803,1626,257,-1142,-2407,-3387,-3967,-4077,-3706,-2896,-1743,-385,1018,2302
+,3313,3933,4087,3759,2985,1859,513,-893,-2194,-3236,-3895,-4093,-3808,-3072,-1973,-640,767,2085,3156,3853};
+
 struct softphone_config_pj {
 	struct softphone_config *cfg;
 	pjsua_transport_id       transp_id;
@@ -220,7 +229,8 @@ extern "C" int softphone_destroy() {
 pj_str_t vpn_ip;
 char vpn_ip_str[18] = "";//"172.16.0.220";
 extern "C" void softphone_force_vpn_ip( const char* ip ) {
-	if(ip) strcpy_s(vpn_ip_str, ip);
+	strcpy_s(vpn_ip_str, ip);
+	vpn_ip = pj_str(vpn_ip_str);
 }
 
 //========================================================
@@ -307,12 +317,15 @@ static void on_call_sdp_created(pjsua_call_id call_id, pjmedia_sdp_session *sdp,
 {
 	if( strlen(vpn_ip_str) == 0 ) return;
 	// Manual entry of IP for VPNs
-	sdp->origin.addr = vpn_ip = pj_str(vpn_ip_str);
+	sdp->origin.addr = vpn_ip;
 	for( u32 i = 0; i < sdp->media_count; i++) {
 		sdp->media[i]->conn->addr = vpn_ip;
 	}
 }
 
+
+pjmedia_port *mem_player;
+pjsua_conf_port_id render_id = 0;
 // Callback called by the library when call's media state has changed
 static void on_call_media_state(pjsua_call_id call_id)
 {
@@ -326,16 +339,20 @@ static void on_call_media_state(pjsua_call_id call_id)
 
 	switch( ci.media_status ) {
 	case PJSUA_CALL_MEDIA_ACTIVE:
-		status = pjmedia_direct_port_create( port );
-		if( status != PJ_SUCCESS ) return;
-		status = pjsua_conf_add_port( port->pool, &port->base, &port->id );
-		if( status != PJ_SUCCESS ) { return; }
-		// When media is active, connect call to direct_port
-		pjsua_conf_connect( port->id, ci.conf_slot );
-		pjsua_conf_connect( ci.conf_slot, port->id );
+	//	status = pjmedia_direct_port_create( port );
+	//	if( status != PJ_SUCCESS ) return;
+	//	status = pjsua_conf_add_port( port->pool, &port->base, &port->id );
+	//	if( status != PJ_SUCCESS ) { return; }
+	//	// When media is active, connect call to direct_port
+	//	pjsua_conf_connect( port->id, ci.conf_slot );
+	//	pjsua_conf_connect( ci.conf_slot, port->id );
 		// When media is active, connect call to sound device.
 	//	pjsua_conf_connect(ci.conf_slot, 0);
 	//	pjsua_conf_connect(0, ci.conf_slot);
+		// Test of memplayer
+		status = pjmedia_mem_player_create( port->pool, sin_440Hz, sizeof(sin_440Hz), 8000, 1, 441, 16, 0, &mem_player );
+		status = pjsua_conf_add_port( port->pool, mem_player, &render_id );
+		status = pjsua_conf_connect( render_id, ci.conf_slot );
 		
 		pjsua_call_set_user_data(call_id, port);
 		break;
@@ -344,6 +361,13 @@ static void on_call_media_state(pjsua_call_id call_id)
 	case PJSUA_CALL_MEDIA_ERROR:
 		break;
 	case PJSUA_CALL_MEDIA_NONE:
+		
+			pjsua_conf_disconnect( render_id, ci.conf_slot );
+			pjsua_conf_remove_port( render_id );
+			pjmedia_port_destroy( mem_player );
+			render_id = 0;
+			mem_player = NULL;
+
 		if( port->id ) {
 			pjsua_conf_disconnect( port->id, ci.conf_slot );
 			pjsua_conf_disconnect( ci.conf_slot, port->id );
@@ -381,11 +405,6 @@ static pj_status_t put_frame( pjmedia_port *this_port, pjmedia_frame *frame)
 
 	port->cfg->push( pU08(frame->buf), size / sizeof(s16) );
 	return PJ_SUCCESS;
-//	DelPush push = port->cfg->dst;
-//	for( u32 i = 0; i < size; i++ ) {
-//		push( ((float)src[i]) / u32(1<<15) );
-//	}
-//	return PJ_SUCCESS;
 }
 
 static pj_status_t get_frame( pjmedia_port *this_port, pjmedia_frame *frame)
@@ -403,15 +422,9 @@ static pj_status_t get_frame( pjmedia_port *this_port, pjmedia_frame *frame)
 	port->cfg->pull( pU08(frame->buf), size );
 	frame->type = PJMEDIA_FRAME_TYPE_AUDIO;
 	return PJ_SUCCESS;
-//	DelPull pull = port->cfg->src;
-//	for( u32 i = 0; i < size; i++ ) {
-//		dst[i] = s16( pull() * u32(1<<15) );
-//	}
-//	frame->type = PJMEDIA_FRAME_TYPE_AUDIO;
 //	pj_get_timestamp( &frame->timestamp );
 //	frame->timestamp.u64 = port->timestamp.u64;
 //	port->timestamp.u64 += PJMEDIA_PIA_SPF(&this_port->info);
-//	PJ_SUCCESS;
 }
 
 static pj_status_t on_destroy(pjmedia_port *this_port)
