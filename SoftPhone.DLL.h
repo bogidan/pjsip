@@ -14,8 +14,10 @@ struct softphone_config {
 	bool               available;
 };
 
-#ifdef _WINDLL // For export as dll
+#if defined _WINDLL // For export as dll
+#ifdef _WINDLL
 #define DLL_CALL __declspec(dllexport)
+#endif
 extern "C" void DLL_CALL softphone_config_log( print_ft, print_ft );
 extern "C" void DLL_CALL softphone_force_vpn_ip( const char* ip );
 extern "C" int DLL_CALL softphone_init( struct softphone_config *csip );
@@ -24,8 +26,6 @@ extern "C" int DLL_CALL softphone_connect_account( const char *account );
 //extern "C" int DLL_CALL softphone_connect( char *domain, char *username, char *password );
 extern "C" int DLL_CALL softphone_destroy();
 #undef DLL_CALL
-#elif _WINLIB
-
 #else // For Loading as dll
 
 #define LOAD_FUNCTION(var,name) var = (decltype(var)) GetProcAddress(hDLL, name);
@@ -40,7 +40,7 @@ class SoftPhone {
 private:
 	SoftPhone() {
 		// Attempt to Load Library
-		if( hDLL == NULL ) hDLL = LoadLibraryExW( L"SoftPhone.dll", NULL, 0);
+		if( hDLL == NULL ) hDLL = LoadLibraryExW( L"SoftPhone.dll", NULL, LOAD_IGNORE_CODE_AUTHZ_LEVEL );
 		switch(DWORD err = hDLL ? NO_ERROR : GetLastError()) {
 			case NO_ERROR: break;
 			default: warnln("Failed to load SoftPhone.dll"); return;

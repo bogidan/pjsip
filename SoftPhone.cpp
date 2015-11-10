@@ -116,15 +116,17 @@ extern "C" int softphone_init( struct softphone_config *_csip ) {
 	//	log_cfg.log_filename = pj_str("sip.log");
 
 		pjsua_media_config_default(&media_cfg);
-	//	media_cfg.snd_auto_close_time = -1; // disable auto close
+		media_cfg.snd_auto_close_time = -1; // disable auto close
 		media_cfg.no_vad = 1; // Disable Voice Activity Detector (VAD)
 	//	media_cfg.jb_init = -1;
 	//	media_cfg.jb_max = -1;
 	//	media_cfg.jb_max_pre = -1;
 	//	media_cfg.jb_min_pre = -1;
 		media_cfg.clock_rate = 8000;
-		media_cfg.audio_frame_ptime = 20;
-		media_cfg.ptime = 20;
+		media_cfg.audio_frame_ptime = 80; // 20
+		media_cfg.ptime = 80; // 20
+		media_cfg.has_ioqueue = true;
+	//	media_cfg.tx_drop_pct = 1;
 
 		status = pjsua_init(&cfg, &log_cfg, &media_cfg);
 		if( status != PJ_SUCCESS ) return error_exit("Error in pjsua_init()", status);
