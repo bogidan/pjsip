@@ -43,7 +43,7 @@ static const u16 sin_440Hz[] = {
 ,3313,3933,4087,3759,2985,1859,513,-893,-2194,-3236,-3895,-4093,-3808,-3072,-1973,-640,767,2085,3156,3853};
 
 struct softphone_config_pj {
-	struct softphone_config *cfg;
+	struct softphone_config  cfg;
 	pjsua_transport_id       transp_id;
 	pjsua_acc_id             acc_id;
 };
@@ -88,7 +88,7 @@ static struct softphone_config_pj csip = {0};
 extern "C" int softphone_init( struct softphone_config *_csip ) {
 	pj_status_t status;
 
-	csip.cfg = _csip;
+	csip.cfg = *_csip;
 	// Create pjsua first!
 	status = pjsua_create();
 	if (status != PJ_SUCCESS) error_exit("Error in pjsua_create()", status);
@@ -111,8 +111,8 @@ extern "C" int softphone_init( struct softphone_config *_csip ) {
 	//	cfg.stun_host = pj_str(""); // disable stun server
 		
 		pjsua_logging_config_default(&log_cfg);
-		log_cfg.console_level = 5;
-	//	log_cfg.level = 4;
+		log_cfg.console_level = 3; // 5;
+	//	log_cfg.level = 5;
 	//	log_cfg.log_filename = pj_str("sip.log");
 
 		pjsua_media_config_default(&media_cfg);
@@ -135,18 +135,7 @@ extern "C" int softphone_init( struct softphone_config *_csip ) {
 	//	status = pjsua_set_ec(0, 0);
 	//	if( status != PJ_SUCCESS ) return error_exit("Error in pjsua_set_ec()", status);
 		
-		{	// Filter acceptable codecs
-			pjsua_codec_info info[32]; // sizeof returns zero
-			unsigned count = 32;
-			if( pjsua_enum_codecs(info, &count) == PJ_SUCCESS ) {
-				auto i = info - 1;
-				while( ++i < info + count ) {
-					if( strstr( i->codec_id.ptr, "PCMU" ) ) {
-						println("Codec: %s - %d", i->codec_id.ptr, i->priority);
-					} else pjsua_codec_set_priority( &i->codec_id, 0 );
-				}
-			}
-		}
+		
 	}
 
 	{	// Create UDP transport.
@@ -168,14 +157,14 @@ extern "C" int softphone_init( struct softphone_config *_csip ) {
 extern "C" int softphone_listen() {
 	pj_status_t status;
 
-	if( csip.cfg == NULL ) return PJ_EINVALIDOP;
+	if( csip.cfg.available ) return PJ_EINVALIDOP;
 	if( pjsua_acc_is_valid( csip.acc_id ) )
 		pjsua_acc_del( csip.acc_id );
 	
 	status = pjsua_acc_add_local( csip.transp_id, PJ_TRUE, &csip.acc_id);
 	if (status != PJ_SUCCESS) return error_exit("Error adding account", status);
 
-	pjsua_acc_set_user_data(csip.acc_id, csip.cfg);
+	pjsua_acc_set_user_data(csip.acc_id, &csip.cfg);
 	return PJ_SUCCESS;
 }
 
@@ -192,7 +181,7 @@ int softphone_connect( char *domain, char *username, char *password ) {
 	cstr_t id;
 	cstr_t uri;
 
-	if( csip.cfg == NULL ) return PJ_EINVALIDOP;
+	if( csip.cfg.available ) return PJ_EINVALIDOP;
 	if( pjsua_acc_is_valid( csip.acc_id ) )
 		pjsua_acc_del( csip.acc_id );
 
@@ -209,12 +198,42 @@ int softphone_connect( char *domain, char *username, char *password ) {
 	cfg.cred_info[0].username = pj_str(username);
 	cfg.cred_info[0].data_type = PJSIP_CRED_DATA_PLAIN_PASSWD;
 	cfg.cred_info[0].data = pj_str(password);
-	cfg.user_data = csip.cfg;
+	cfg.user_data = &csip.cfg;
 
 	status = pjsua_acc_add(&cfg, PJ_FALSE, &csip.acc_id);
 	if (status != PJ_SUCCESS) return error_exit("Error adding account", status);
 
 	return PJ_SUCCESS;
+}
+extern "C" int softphone_codecs( const char *codecs ) {
+	// Get available codecs from the system
+	pjsua_codec_info info[32]; // sizeof returns zero
+	unsigned count = 32;
+	if( pjsua_enum_codecs(info, &count) != PJ_SUCCESS ) return 0;
+	else {
+		print("  Codecs Available:\n\t");
+		for( auto i = info; i < (info+count); i++ ) {
+			pjsua_codec_set_priority( &i->codec_id, 0);
+			print("%s, ", i->codec_id.ptr);
+		}
+	}
+
+	u08 priority = PJMEDIA_CODEC_PRIO_HIGHEST - 1;
+	char codec[50] = "\0";
+	
+	// Filter acceptable codecs, assign priority based on list order
+	char tokens[MAX_PATH]; strcpy_s(tokens, codecs);
+	char *token, *next_token = tokens;
+	println("\n  Codecs Selected: (%s)", codecs);
+	while(token = strtok_s(next_token, ",", &next_token)) {
+		for( auto i = info; i < (info+count); i++ ) {
+			if( strstr( i->codec_id.ptr, token ) ) {
+				println("\t%s - %d", i->codec_id.ptr, priority);
+				pjsua_codec_set_priority( &i->codec_id, priority--);
+			}
+		}
+	}
+	return 0;
 }
 extern "C" int softphone_connect_account( const char *account ) {
 	cstr_t buf; strcpy(buf, account);
@@ -223,7 +242,7 @@ extern "C" int softphone_connect_account( const char *account ) {
 	return softphone_connect( domain, username, password );
 }
 extern "C" int softphone_destroy() {
-	csip.cfg = NULL;
+	memset(&csip.cfg, 0, sizeof(csip.cfg));
 	pjsua_destroy();
 	return PJ_SUCCESS;
 }
